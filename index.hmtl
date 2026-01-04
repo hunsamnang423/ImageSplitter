@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="km" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Khmer Image Splitter</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Battambang"', 'sans-serif'], // Changed to Battambang
+                        header: ['"Moul"', 'cursive'],
+                    },
+                    colors: {
+                        brand: '#2563eb',
+                        brandHover: '#1d4ed8',
+                        darkBg: '#0f172a',
+                        darkCard: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <!-- Fonts: Battambang & Moul -->
+    <link href="https://fonts.googleapis.com/css2?family=Battambang:wght@400;700&family=Moul&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Battambang', sans-serif; transition: background-color 0.3s, color 0.3s; }
+        
+        /* Grid Overlay */
+        #preview-container {
+            position: relative;
+            display: inline-block;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+            max-width: 100%;
+        }
+        
+        #grid-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: grid;
+            border: 2px solid #3b82f6;
+            z-index: 10;
+        }
+        
+        .grid-cell {
+            border: 1px dashed rgba(59, 130, 246, 0.9);
+            background: rgba(59, 130, 246, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            font-size: 14px;
+        }
+
+        /* Modal Animation */
+        .modal { 
+            opacity: 0; visibility: hidden; transition: all 0.3s ease; 
+            position: fixed; inset: 0; z-index: 60;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(5px);
+        }
+        .modal.active { opacity: 1; visibility: visible; }
+        .modal-content { transform: scale(0.95); transition: all 0.3s ease; }
+        .modal.active .modal-content { transform: scale(1); }
+
+        /* Loader */
+        .loader {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 20px; height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-darkBg dark:text-slate-200 min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="sticky top-0 z-40 bg-white/90 dark:bg-darkCard/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 shadow-sm">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-brand p-2 rounded-xl text-white shadow-lg shadow-blue-500/30">
+                    <i data-lucide="scissors" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-header text-slate-800 dark:text-white pt-1" data-i18n="title">កាត់រូបភាព</h1>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                <!-- Lang Toggle -->
+                <button onclick="toggleLang()" class="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-xs font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition border border-slate-200 dark:border-slate-600">
+                    <span id="lang-text">KH</span>
+                </button>
+
+                <!-- Dark Mode Toggle -->
+                <button onclick="toggleTheme()" class="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-600 transition text-slate-600 dark:text-yellow-400 border border-slate-200 dark:border-slate-600">
+                    <i id="theme-icon" data-lucide="moon" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Donate Button -->
+                <button onclick="openModal()" class="flex items-center gap-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg shadow-rose-500/30 hover:scale-105 transition active:scale-95">
+                    <i data-lucide="heart" class="w-3 h-3 fill-current"></i> <span data-i18n="donate">Support</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow w-full max-w-6xl mx-auto px-4 py-8">
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- LEFT: Upload & Preview -->
+            <div class="lg:col-span-2 flex flex-col gap-6">
+                
+                <!-- Upload Box -->
+                <div id="upload-zone" class="w-full h-80 border-4 border-dashed border-slate-300 dark:border-slate-600 rounded-3xl flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 dark:hover:bg-slate-800/50 hover:border-blue-400 transition group relative bg-white dark:bg-darkCard" onclick="document.getElementById('file-input').click()">
+                    <div class="bg-blue-50 dark:bg-slate-700 p-5 rounded-full mb-4 group-hover:scale-110 transition duration-300">
+                        <i data-lucide="image-plus" class="w-10 h-10 text-brand dark:text-blue-400"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-slate-600 dark:text-slate-300" data-i18n="uploadTitle">ជ្រើសរើសរូបភាព</h3>
+                    <p class="text-sm text-slate-400 mt-2 font-sans" data-i18n="uploadSub">JPG, PNG, WebP (Max 10MB)</p>
+                    <input type="file" id="file-input" class="hidden" accept="image/*" onchange="loadImage(event)">
+                </div>
+
+                <!-- Preview Area -->
+                <div id="preview-section" class="hidden flex-col items-center w-full bg-white dark:bg-darkCard p-6 rounded-3xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <div class="flex justify-between w-full mb-4 items-center">
+                        <span class="text-sm font-bold text-slate-500 uppercase flex items-center gap-2">
+                            <i data-lucide="eye" class="w-4 h-4"></i> <span data-i18n="preview">Preview</span>
+                        </span>
+                        <button onclick="reset()" class="text-red-500 text-xs font-bold flex items-center gap-1 hover:bg-red-50 dark:hover:bg-red-900/30 px-3 py-1.5 rounded-lg transition">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i> <span data-i18n="delete">លុប</span>
+                        </button>
+                    </div>
+                    
+                    <div id="preview-container">
+                        <img id="preview-img" class="max-w-full h-auto block rounded-lg" />
+                        <div id="grid-overlay"></div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- RIGHT: Controls -->
+            <div class="space-y-6">
+                
+                <div class="bg-white dark:bg-darkCard p-6 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 sticky top-24">
+                    <h3 class="font-bold text-lg mb-6 flex items-center gap-2 text-slate-800 dark:text-white border-b border-slate-100 dark:border-slate-700 pb-4 font-header">
+                        <i data-lucide="sliders" class="w-5 h-5 text-brand"></i> <span data-i18n="settings" class="pt-1">ការកំណត់</span>
+                    </h3>
+                    
+                    <!-- Rows -->
+                    <div class="mb-6">
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-bold text-slate-500 dark:text-slate-400" data-i18n="rows">ជួរដេក (Rows)</label>
+                            <span id="rows-val" class="text-sm font-bold text-brand bg-blue-50 dark:bg-blue-900/30 px-3 py-0.5 rounded-md border border-blue-100 dark:border-blue-800">2</span>
+                        </div>
+                        <input type="range" id="rows-input" min="1" max="10" value="2" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer" oninput="updateGrid()">
+                    </div>
+
+                    <!-- Cols -->
+                    <div class="mb-6">
+                        <div class="flex justify-between mb-2">
+                            <label class="text-sm font-bold text-slate-500 dark:text-slate-400" data-i18n="cols">ជួរឈរ (Columns)</label>
+                            <span id="cols-val" class="text-sm font-bold text-brand bg-blue-50 dark:bg-blue-900/30 px-3 py-0.5 rounded-md border border-blue-100 dark:border-blue-800">2</span>
+                        </div>
+                        <input type="range" id="cols-input" min="1" max="10" value="2" class="w-full accent-blue-600 h-2 bg-slate-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer" oninput="updateGrid()">
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100 dark:border-slate-700 mt-4 mb-6">
+                        <div class="flex justify-between text-sm items-center">
+                            <span class="text-slate-500 dark:text-slate-400" data-i18n="total">ចំនួនរូបសរុប:</span>
+                            <span id="total-pieces" class="font-bold text-xl text-slate-800 dark:text-white">4</span>
+                        </div>
+                    </div>
+
+                    <button id="split-btn" onclick="processSplit()" disabled class="w-full bg-brand hover:bg-brandHover text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-blue-500/30 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none flex items-center justify-center gap-2 font-sans">
+                        <i data-lucide="scissors" class="w-5 h-5"></i> <span data-i18n="splitBtn">កាត់រូបភាព</span>
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- RESULTS SECTION -->
+        <div id="results-section" class="mt-16 hidden">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b border-slate-200 dark:border-slate-700 pb-6">
+                <h2 class="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-3 font-header">
+                    <div class="bg-green-100 dark:bg-green-900/30 p-2 rounded-xl text-green-600 dark:text-green-400">
+                        <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                    </div>
+                    <span data-i18n="results" class="pt-1">លទ្ធផល</span> 
+                    <span class="text-sm bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full text-slate-500 dark:text-slate-300 font-sans" id="result-count">0</span>
+                </h2>
+                <button onclick="downloadAllZip()" class="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-green-500/30 flex items-center gap-2 transition active:scale-95 transform hover:-translate-y-1">
+                    <i data-lucide="download" class="w-5 h-5"></i> <span data-i18n="downloadZip">ទាញយកទាំងអស់ (ZIP)</span>
+                </button>
+            </div>
+
+            <div id="grid-results" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                <!-- Images injected here -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-12 py-8 text-center text-slate-400 text-xs border-t border-slate-200 dark:border-slate-800">
+        <p><span data-i18n="footer">រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ</span> <span class="font-bold text-brand">Hun Samnang</span> © 2026</p>
+    </footer>
+
+    <!-- PAYMENT MODAL -->
+    <div id="paymentModal" class="modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onclick="if(event.target === this) closeModal()">
+        <div class="modal-content bg-white dark:bg-darkCard w-full max-w-xs rounded-2xl overflow-hidden shadow-2xl relative border border-slate-200 dark:border-slate-700">
+            <!-- Modal Header -->
+            <div class="bg-gradient-to-r from-pink-500 to-rose-500 p-4 text-center text-white relative">
+                <button onclick="closeModal()" class="absolute top-3 right-3 text-white/70 hover:text-white bg-white/10 p-1 rounded-full transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+                <div class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-2 backdrop-blur-md">
+                    <i data-lucide="coffee" class="w-6 h-6 text-white fill-current"></i>
+                </div>
+                <h3 class="text-lg font-header tracking-wide pt-1" data-i18n="donateTitle">គាំទ្រអ្នកបង្កើត</h3>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6 text-center">
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-4" data-i18n="donateSub">ស្កេន QR ដើម្បីគាំទ្រ</p>
+                
+                <!-- QR Code Box -->
+                <div class="bg-slate-50 dark:bg-slate-900 p-2 rounded-xl border-2 border-dashed border-slate-200 dark:border-slate-600 inline-block mb-4 shadow-sm">
+                    <!-- ⚠️ ដាក់ឈ្មោះរូប QR Code (upload ចូល GitHub: qr.jpg) -->
+                    <img src="./qr.jpg" alt="ABA QR" class="w-40 h-40 object-contain rounded-lg">
+                </div>
+                
+                <div class="grid grid-cols-1 gap-2">
+                    <a href="https://pay.ababank.com/oRF8/mvq2t218" target="_blank" class="block w-full bg-brand hover:bg-brandHover text-white py-2.5 rounded-lg font-bold text-sm transition shadow-md active:scale-95">
+                        Open ABA App
+                    </a>
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex justify-center gap-4">
+                    <a href="#" class="text-slate-400 hover:text-blue-500 transition"><i data-lucide="facebook" class="w-5 h-5"></i></a>
+                    <a href="#" class="text-slate-400 hover:text-blue-400 transition"><i data-lucide="send" class="w-5 h-5"></i></a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // Init Icons
+        lucide.createIcons();
+
+        // --- TRANSLATIONS ---
+        const translations = {
+            km: {
+                title: "កាត់រូបភាព",
+                uploadTitle: "ជ្រើសរើសរូបភាព",
+                uploadSub: "JPG, PNG, WebP (Max 10MB)",
+                preview: "រូបភាពគំរូ (Preview)",
+                delete: "លុប",
+                settings: "ការកំណត់",
+                rows: "ជួរដេក (Rows)",
+                cols: "ជួរឈរ (Columns)",
+                total: "ចំនួនរូបសរុប:",
+                splitBtn: "កាត់រូបភាព",
+                processing: "កំពុងកាត់...",
+                results: "លទ្ធផល",
+                downloadZip: "ទាញយកទាំងអស់ (ZIP)",
+                footer: "រក្សាសិទ្ធិគ្រប់យ៉ាងដោយ",
+                donateTitle: "គាំទ្រអ្នកបង្កើត",
+                donateSub: "ស្កេន QR ដើម្បីគាំទ្រ",
+                donate: "Support"
+            },
+            en: {
+                title: "Image Splitter",
+                uploadTitle: "Select Image",
+                uploadSub: "JPG, PNG, WebP (Max 10MB)",
+                preview: "Preview",
+                delete: "Delete",
+                settings: "Settings",
+                rows: "Rows",
+                cols: "Columns",
+                total: "Total Images:",
+                splitBtn: "Split Image",
+                processing: "Processing...",
+                results: "Results",
+                downloadZip: "Download All (ZIP)",
+                footer: "All rights reserved by",
+                donateTitle: "Support Creator",
+                donateSub: "Scan QR to Support",
+                donate: "Support"
+            }
+        };
+
+        // --- STATE ---
+        let currentLang = 'km';
+        let isDark = false;
+        let originalImage = null;
+        let generatedPieces = [];
+
+        // --- TOGGLES ---
+        function toggleLang() {
+            currentLang = currentLang === 'km' ? 'en' : 'km';
+            document.getElementById('lang-text').innerText = currentLang === 'km' ? 'KH' : 'EN';
+            updateTexts();
+        }
+
+        function toggleTheme() {
+            isDark = !isDark;
+            const html = document.documentElement;
+            const icon = document.getElementById('theme-icon');
+            
+            if (isDark) {
+                html.classList.add('dark');
+                icon.setAttribute('data-lucide', 'sun');
+            } else {
+                html.classList.remove('dark');
+                icon.setAttribute('data-lucide', 'moon');
+            }
+            lucide.createIcons();
+        }
+
+        function updateTexts() {
+            const t = translations[currentLang];
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if(t[key]) el.innerText = t[key];
+            });
+        }
+
+        // --- IMAGE LOGIC ---
+        function loadImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                originalImage = new Image();
+                originalImage.onload = function() {
+                    document.getElementById('upload-zone').classList.add('hidden');
+                    document.getElementById('preview-section').classList.remove('hidden');
+                    document.getElementById('preview-section').classList.add('flex');
+                    document.getElementById('preview-img').src = e.target.result;
+                    document.getElementById('split-btn').disabled = false;
+                    updateGrid();
+                };
+                originalImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateGrid() {
+            if (!originalImage) return;
+
+            const rows = parseInt(document.getElementById('rows-input').value);
+            const cols = parseInt(document.getElementById('cols-input').value);
+
+            document.getElementById('rows-val').innerText = rows;
+            document.getElementById('cols-val').innerText = cols;
+            document.getElementById('total-pieces').innerText = rows * cols;
+
+            const overlay = document.getElementById('grid-overlay');
+            overlay.innerHTML = ''; 
+            overlay.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            overlay.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+            for (let i = 0; i < rows * cols; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'grid-cell';
+                cell.innerText = i + 1;
+                overlay.appendChild(cell);
+            }
+        }
+
+        function processSplit() {
+            if (!originalImage) return;
+            
+            const btn = document.getElementById('split-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<div class="loader"></div> ' + translations[currentLang].processing;
+            btn.disabled = true;
+
+            setTimeout(() => {
+                const rows = parseInt(document.getElementById('rows-input').value);
+                const cols = parseInt(document.getElementById('cols-input').value);
+                
+                const pieceWidth = originalImage.width / cols;
+                const pieceHeight = originalImage.height / rows;
+
+                generatedPieces = [];
+                const resultsContainer = document.getElementById('grid-results');
+                resultsContainer.innerHTML = '';
+
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = pieceWidth;
+                        canvas.height = pieceHeight;
+                        const ctx = canvas.getContext('2d');
+
+                        ctx.drawImage(originalImage, c * pieceWidth, r * pieceHeight, pieceWidth, pieceHeight, 0, 0, pieceWidth, pieceHeight);
+
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+                        const fileName = `split_${r+1}_${c+1}.jpg`;
+                        
+                        generatedPieces.push({ src: dataUrl, name: fileName });
+
+                        const div = document.createElement('div');
+                        div.className = 'bg-white dark:bg-darkCard p-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm group relative hover:-translate-y-1 transition';
+                        div.innerHTML = `
+                            <div class="aspect-square bg-slate-100 dark:bg-slate-800 rounded-lg overflow-hidden mb-2 relative">
+                                <img src="${dataUrl}" class="w-full h-full object-contain">
+                                <div class="absolute top-1 left-1 bg-black/50 text-white text-[10px] px-1.5 rounded backdrop-blur">${generatedPieces.length}</div>
+                            </div>
+                            <button onclick="saveAs('${dataUrl}', '${fileName}')" class="w-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-50 dark:hover:bg-slate-700 hover:text-brand py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1">
+                                <i data-lucide="download" class="w-3 h-3"></i> Save
+                            </button>
+                        `;
+                        resultsContainer.appendChild(div);
+                    }
+                }
+                
+                lucide.createIcons();
+
+                document.getElementById('results-section').classList.remove('hidden');
+                document.getElementById('result-count').innerText = generatedPieces.length;
+                
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                
+                document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' });
+
+            }, 500); 
+        }
+
+        function downloadAllZip() {
+            const zip = new JSZip();
+            generatedPieces.forEach((p, i) => {
+                const imgData = p.src.split(',')[1];
+                zip.file(p.name, imgData, {base64: true});
+            });
+            zip.generateAsync({type:"blob"}).then(function(content) {
+                saveAs(content, "khmer_splitted_images.zip");
+            });
+        }
+
+        function reset() {
+            originalImage = null;
+            generatedPieces = [];
+            document.getElementById('file-input').value = "";
+            document.getElementById('upload-zone').classList.remove('hidden');
+            document.getElementById('preview-section').classList.add('hidden');
+            document.getElementById('preview-section').classList.remove('flex');
+            document.getElementById('results-section').classList.add('hidden');
+            document.getElementById('split-btn').disabled = true;
+            lucide.createIcons();
+        }
+
+        // --- MODAL LOGIC ---
+        function openModal() {
+            document.getElementById('paymentModal').classList.add('active');
+        }
+        function closeModal() {
+            document.getElementById('paymentModal').classList.remove('active');
+        }
+
+        // Initialize
+        updateTexts();
+    </script>
+</body>
+</html>
+
+
